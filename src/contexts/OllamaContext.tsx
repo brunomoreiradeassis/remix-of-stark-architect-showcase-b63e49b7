@@ -519,14 +519,10 @@ export function OllamaProvider({ children }: { children: ReactNode }) {
         }
       }
       
-      // Só atualiza se houver mudança real para evitar re-renders infinitos ou desnecessários
+      // So atualiza se houver mudanca real para evitar re-renders desnecessarios
       setVirtualFiles(prev => {
         const isDifferent = JSON.stringify(prev) !== JSON.stringify(files);
-        if (isDifferent) {
-          localStorage.setItem("virtual-files", JSON.stringify(files));
-          return files;
-        }
-        return prev;
+        return isDifferent ? files : prev;
       });
       
       if (files.length > 0 && !currentFileState) {
@@ -558,12 +554,10 @@ export function OllamaProvider({ children }: { children: ReactNode }) {
       const files = (data.files as Array<{ path: string; code: string }>) || [];
       const mapped = files.map(f => ({ ...f, ai: false }));
       setVirtualFiles(mapped);
-      localStorage.setItem("virtual-files", JSON.stringify(mapped));
       setProjectPath(absolutePath || data.path);
       localStorage.setItem("current-project-path", absolutePath || data.path);
       if (mapped.length > 0) {
         setCurrentFileState(mapped[0].path);
-        localStorage.setItem("current-file", mapped[0].path);
       }
       toast({ title: "Projeto remoto carregado", description: projectName });
     } catch (e: any) {
@@ -604,35 +598,36 @@ export function OllamaProvider({ children }: { children: ReactNode }) {
   };
 
   const syncFileToDisk = async (path: string, code: string) => {
-    if (!dirHandle) return;
-    try {
-      // Sync local (FileSystemHandle)
-      const fileHandle = await getFileHandle(path, true);
-      if (fileHandle) {
-        const writable = await fileHandle.createWritable();
-        await writable.write(code);
-        await writable.close();
+    // Sync local (FileSystemHandle) - se disponivel
+    if (dirHandle) {
+      try {
+        const fileHandle = await getFileHandle(path, true);
+        if (fileHandle) {
+          const writable = await fileHandle.createWritable();
+          await writable.write(code);
+          await writable.close();
+        }
+      } catch (e: any) {
+        console.error(`Error syncing ${path} to local disk:`, e);
       }
+    }
 
-      // Sync remoto (Servidor Projetos) se estivermos em um projeto identificado
-      if (dirHandle.name) {
-        fetch("http://localhost:3001/save-file", {
+    // Sync remoto (Servidor Projetos) - SEMPRE que tivermos nome do projeto
+    const pName = dirHandle?.name || derivedProjectName;
+    if (pName) {
+      try {
+        await fetch("http://localhost:3001/save-file", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            projectName: dirHandle.name,
+            projectName: pName,
             filePath: path,
             content: code
           })
-        }).catch(err => console.error("Erro ao sincronizar arquivo com servidor remoto:", err));
+        });
+      } catch (err) {
+        console.error("Erro ao sincronizar arquivo com servidor remoto:", err);
       }
-    } catch (e: any) {
-      console.error(`Error syncing ${path} to disk:`, e);
-      toast({ 
-        title: "Erro de sincronização", 
-        description: `Não foi possível salvar ${path}: ${e.message}`, 
-        variant: "destructive" 
-      });
     }
   };
 
@@ -660,13 +655,14 @@ export function OllamaProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    // Sync remoto (Servidor Projetos) se estivermos em um projeto identificado
-    if (dirHandle?.name) {
+    // Sync remoto (Servidor Projetos) - SEMPRE que tivermos nome do projeto
+    const pName = dirHandle?.name || derivedProjectName;
+    if (pName) {
       fetch("http://localhost:3001/delete-file", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          projectName: dirHandle.name,
+          projectName: pName,
           filePath: path,
         }),
       }).catch((err) =>
@@ -753,16 +749,11 @@ export function OllamaProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // virtual-files nao e mais persistido em localStorage.
+  // Os arquivos sao carregados da pasta Projetos/ via loadRemoteProject ou loadFilesFromHandle.
   useEffect(() => {
-    const raw = localStorage.getItem("virtual-files");
-    if (raw) {
-      try {
-        const arr = JSON.parse(raw) as Array<{ path: string; code: string; ai: boolean }>;
-        setVirtualFiles(arr);
-      } catch (e) {
-        void e;
-      }
-    }
+    // Limpar cache antigo de virtual-files no localStorage
+    try { localStorage.removeItem("virtual-files"); } catch { /* noop */ }
   }, []);
 
   const addVirtualFile = useCallback((path: string, code: string, ai: boolean = true) => {
@@ -774,29 +765,26 @@ export function OllamaProvider({ children }: { children: ReactNode }) {
       } else {
         next.push({ path, code, ai });
       }
-      localStorage.setItem("virtual-files", JSON.stringify(next));
       return next;
     });
     
-    // Sync to disk
+    // Sync to disk (local + Projetos/)
     syncFileToDisk(path, code);
 
     try {
       setCurrentFileState(path);
-      localStorage.setItem("current-file", path);
     } catch (e) { void e; }
-  }, [dirHandle]); // Added dirHandle to dependencies
+  }, [dirHandle, derivedProjectName]);
 
   const updateVirtualFile = useCallback((path: string, code: string) => {
     setVirtualFiles((prev) => {
       const next = prev.map((f) => (f.path === path ? { ...f, code } : f));
-      localStorage.setItem("virtual-files", JSON.stringify(next));
       return next;
     });
     
-    // Sync to disk
+    // Sync to disk (local + Projetos/)
     syncFileToDisk(path, code);
-  }, [dirHandle]);
+  }, [dirHandle, derivedProjectName]);
 
   const renameVirtualFile = useCallback(async (oldPath: string, newPath: string) => {
     // For rename, we delete the old one and create the new one on disk
@@ -809,32 +797,26 @@ export function OllamaProvider({ children }: { children: ReactNode }) {
 
     setVirtualFiles((prev) => {
       const next = prev.map((f) => (f.path === oldPath ? { ...f, path: newPath } : f));
-      localStorage.setItem("virtual-files", JSON.stringify(next));
       return next;
     });
     setCurrentFileState((prev) => {
-      const next = prev === oldPath ? newPath : prev;
-      if (next) localStorage.setItem("current-file", next);
-      return next;
+      return prev === oldPath ? newPath : prev;
     });
-  }, [dirHandle, virtualFiles]);
+  }, [dirHandle, derivedProjectName, virtualFiles]);
 
   const deleteVirtualFile = useCallback((path: string) => {
     setVirtualFiles((prev) => {
       const next = prev.filter((f) => f.path !== path);
-      localStorage.setItem("virtual-files", JSON.stringify(next));
       return next;
     });
     
-    // Delete from disk
+    // Delete from disk (local + Projetos/)
     deleteFileFromDisk(path);
 
     setCurrentFileState((prev) => {
-      const next = prev === path ? null : prev;
-      localStorage.setItem("current-file", next ?? "");
-      return next;
+      return prev === path ? null : prev;
     });
-  }, [dirHandle]);
+  }, [dirHandle, derivedProjectName]);
 
   const projectComponents = [
     ...virtualFiles
