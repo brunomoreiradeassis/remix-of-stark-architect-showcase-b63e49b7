@@ -11,10 +11,11 @@ export async function listModels(baseUrl: string) {
   return res.json();
 }
 
-/**
- * Retry helper: tenta a função até `retries` vezes com delay entre tentativas.
- */
-async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 2000): Promise<T> {
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  retries = 2,
+  delayMs = 2000,
+): Promise<T> {
   let lastErr: Error | null = null;
   for (let i = 0; i <= retries; i++) {
     try {
@@ -22,7 +23,10 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 2000): 
     } catch (e) {
       lastErr = e instanceof Error ? e : new Error(String(e));
       if (i < retries) {
-        console.warn(`[Ollama] Tentativa ${i + 1} falhou, retentando em ${delayMs}ms...`, lastErr.message);
+        console.warn(
+          `[Ollama] Tentativa ${i + 1} falhou, retentando em ${delayMs}ms...`,
+          lastErr.message,
+        );
         await new Promise((r) => setTimeout(r, delayMs));
       }
     }
@@ -32,7 +36,10 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 2000): 
 
 export async function chatStream(params: {
   config: OllamaConfig;
-  messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
+  messages: Array<{
+    role: "system" | "user" | "assistant";
+    content: string;
+  }>;
   onToken: (token: string) => void;
   signal?: AbortSignal;
 }) {
@@ -57,7 +64,9 @@ export async function chatStream(params: {
     });
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
-      throw new Error(`Falha ao conectar ao chat do Ollama (HTTP ${res.status}): ${errText || "sem detalhes"}`);
+      throw new Error(
+        `Falha ao conectar ao chat do Ollama (HTTP ${res.status}): ${errText || "sem detalhes"}`,
+      );
     }
     if (!res.body) throw new Error("Resposta sem body stream");
     return res;
@@ -74,7 +83,6 @@ export async function chatStream(params: {
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split("\n");
-    // Keep last potentially incomplete line in buffer
     buffer = lines.pop() || "";
     for (const l of lines) {
       if (!l.trim()) continue;
@@ -90,7 +98,6 @@ export async function chatStream(params: {
       }
     }
   }
-  // Flush remaining buffer
   if (buffer.trim()) {
     try {
       const json = JSON.parse(buffer);
@@ -99,7 +106,9 @@ export async function chatStream(params: {
         params.onToken(token);
         full += token;
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
   return full;
 }
@@ -131,7 +140,9 @@ export async function generateStream(params: {
     });
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
-      throw new Error(`Falha ao conectar à geração do Ollama (HTTP ${res.status}): ${errText || "sem detalhes"}`);
+      throw new Error(
+        `Falha ao conectar a geracao do Ollama (HTTP ${res.status}): ${errText || "sem detalhes"}`,
+      );
     }
     if (!res.body) throw new Error("Resposta sem body stream");
     return res;
@@ -171,7 +182,9 @@ export async function generateStream(params: {
         params.onToken(token);
         full += token;
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
   return full;
 }
@@ -189,7 +202,11 @@ export function extractTsxBlocks(text: string) {
     const end = text.indexOf(fence, langEnd + 1);
     if (end === -1) break;
     const code = text.substring(langEnd + 1, end);
-    if (lang.startsWith("tsx") || lang.startsWith("typescript") || lang.startsWith("jsx")) {
+    if (
+      lang.startsWith("tsx") ||
+      lang.startsWith("typescript") ||
+      lang.startsWith("jsx")
+    ) {
       const lines = code.split("\n");
       let filename: string | undefined;
       const first = lines[0] || "";
@@ -204,7 +221,13 @@ export function extractTsxBlocks(text: string) {
   return blocks;
 }
 
-export function makeChatCacheKey(config: OllamaConfig, messages: Array<{ role: "system" | "user" | "assistant"; content: string }>) {
+export function makeChatCacheKey(
+  config: OllamaConfig,
+  messages: Array<{
+    role: "system" | "user" | "assistant";
+    content: string;
+  }>,
+) {
   const payload = {
     model: config.selectedModel,
     temperature: config.temperature,
@@ -246,7 +269,11 @@ export function setCacheItem(key: string, value: string) {
   }
 }
 
-export function pickModel(task: "generate" | "chat" | "explain" | "fix" | "refactor", available: string[], fallback: string) {
+export function pickModel(
+  task: "generate" | "chat" | "explain" | "fix" | "refactor",
+  available: string[],
+  fallback: string,
+) {
   try {
     const raw = localStorage.getItem("ollama-task-models");
     if (raw) {
@@ -263,39 +290,86 @@ export function pickModel(task: "generate" | "chat" | "explain" | "fix" | "refac
   return available[0] ?? fallback;
 }
 
-/**
- * Extrai blocos de código de qualquer linguagem (tsx, ts, jsx, css, json, html, etc.)
- */
+// ---------------------------------------------------------------------------
+// extractAllCodeBlocks
+// Extrai blocos de codigo de qualquer linguagem.
+// Tenta extrair o nome do arquivo de multiplas formas:
+//  1. Comentario na 1a linha: // src/components/X.tsx
+//  2. Comentario HTML: <!-- src/pages/index.html -->
+//  3. Caminho solto na 1a linha: src/components/X.tsx
+//  4. Anotacao na fence: ```tsx title="src/X.tsx"
+//  5. Busca nas 3 primeiras linhas
+// ---------------------------------------------------------------------------
 export function extractAllCodeBlocks(text: string) {
   const blocks: { filename?: string; code: string; lang: string }[] = [];
-  const regex = /```(\w*)\n([\s\S]*?)```/g;
+  const regex = /```(\w*(?:\s+[^\n]*)?)\n([\s\S]*?)```/g;
   let match: RegExpExecArray | null;
   while ((match = regex.exec(text)) !== null) {
-    const lang = match[1] || "txt";
+    const fenceInfo = match[1] || "txt";
+    const lang = fenceInfo.split(/\s/)[0] || "txt";
     const code = match[2];
     if (!code.trim()) continue;
     const lines = code.split("\n");
     let filename: string | undefined;
-    const first = lines[0] || "";
-    const mLine = first.trim();
-    const m1 = mLine.match(/\/\/\s*(.+\.\w+)/i);
-    const m2 = mLine.match(/<!--\s*(.+\.\w+)\s*-->/i);
-    const m3 = mLine.match(/\/\*\s*(.+\.\w+)\s*\*\//i);
-    filename = (m1?.[1] || m2?.[1] || m3?.[1] || "").trim() || undefined;
+
+    // Tentar extrair da anotacao da fence (ex: ```tsx title="src/X.tsx")
+    const fencePath = fenceInfo.match(
+      /(?:title=["']?|file=["']?)((?:src|public|app)\/[^\s"']+\.\w+)/i,
+    );
+    if (fencePath) {
+      filename = fencePath[1].trim();
+    }
+
+    // Tentar nas primeiras 3 linhas do codigo
+    if (!filename) {
+      for (let li = 0; li < Math.min(3, lines.length); li++) {
+        const line = (lines[li] || "").trim();
+        // // src/components/X.tsx  ou  // X.tsx
+        const m1 =
+          line.match(/^\/\/\s*((?:src|public|app)\/[^\s]+\.\w+)/i) ||
+          line.match(/^\/\/\s*([^\s]+\.\w+)/i);
+        // <!-- path -->
+        const m2 =
+          line.match(/^<!--\s*((?:src|public|app)\/[^\s]+\.\w+)/i) ||
+          line.match(/^<!--\s*([^\s]+\.\w+)/i);
+        // block comment with path
+        const m3 =
+          line.match(/^\/\*\s*((?:src|public|app)\/[^\s]+\.\w+)/i) ||
+          line.match(/^\/\*\s*([^\s]+\.\w+)/i);
+        // Caminho solto na linha: src/components/X.tsx
+        const m4 =
+          li === 0
+            ? line.match(/^((?:src|public|app)\/[^\s]+\.\w+)\s*$/)
+            : null;
+
+        const found = m1?.[1] || m2?.[1] || m3?.[1] || m4?.[1];
+        if (found) {
+          filename = found.trim();
+          break;
+        }
+      }
+    }
+
     blocks.push({ filename, code, lang });
   }
   return blocks;
 }
 
-/**
- * Parseia a resposta do plano e extrai operações de arquivo (criar, modificar, excluir).
- */
+// ---------------------------------------------------------------------------
+// extractFileOperations
+// Parseia o plano e extrai operacoes (criar/modificar/excluir).
+// Aceita caminhos com ou sem backticks.
+// ---------------------------------------------------------------------------
 export function extractFileOperations(planText: string): {
   create: string[];
   modify: string[];
   delete: string[];
 } {
-  const result = { create: [] as string[], modify: [] as string[], delete: [] as string[] };
+  const result = {
+    create: [] as string[],
+    modify: [] as string[],
+    delete: [] as string[],
+  };
   const lines = planText.split("\n");
 
   let currentSection: "create" | "modify" | "delete" | null = null;
@@ -303,23 +377,64 @@ export function extractFileOperations(planText: string): {
   for (const line of lines) {
     const lower = line.toLowerCase().trim();
 
-    if (lower.includes("arquivos a criar") || lower.includes("criar:") || lower.includes("novos arquivos") || lower.includes("files to create")) {
+    if (
+      lower.includes("arquivos a criar") ||
+      lower.includes("criar:") ||
+      lower.includes("novos arquivos") ||
+      lower.includes("files to create") ||
+      lower.includes("arquivos novos") ||
+      /^###?\s*cria/.test(lower)
+    ) {
       currentSection = "create";
       continue;
     }
-    if (lower.includes("arquivos a modificar") || lower.includes("modificar:") || lower.includes("arquivos modificados") || lower.includes("files to modify")) {
+    if (
+      lower.includes("arquivos a modificar") ||
+      lower.includes("modificar:") ||
+      lower.includes("arquivos modificados") ||
+      lower.includes("files to modify") ||
+      lower.includes("arquivos existentes") ||
+      /^###?\s*modifica/.test(lower) ||
+      /^###?\s*alter/.test(lower)
+    ) {
       currentSection = "modify";
       continue;
     }
-    if (lower.includes("arquivos a excluir") || lower.includes("excluir:") || lower.includes("arquivos removidos") || lower.includes("files to delete")) {
+    if (
+      lower.includes("arquivos a excluir") ||
+      lower.includes("excluir:") ||
+      lower.includes("arquivos removidos") ||
+      lower.includes("files to delete") ||
+      lower.includes("arquivos a remover") ||
+      /^###?\s*exclu/.test(lower) ||
+      /^###?\s*remov/.test(lower) ||
+      /^###?\s*delet/.test(lower)
+    ) {
       currentSection = "delete";
       continue;
     }
 
+    if (/^###?\s/.test(lower) && currentSection) {
+      currentSection = null;
+      continue;
+    }
+
     if (currentSection) {
-      const fileMatch = line.match(/[-*]\s*`?([^\s`]+\.\w+)`?/);
-      if (fileMatch) {
-        result[currentSection].push(fileMatch[1]);
+      const fileMatchBt = line.match(/[-*]\s*`([^`]+\.\w+)`/);
+      if (fileMatchBt) {
+        result[currentSection].push(fileMatchBt[1].trim());
+        continue;
+      }
+      const fileMatchPlain = line.match(
+        /[-*]\s*((?:src|public|app)\/[\w./-]+\.\w+)/,
+      );
+      if (fileMatchPlain) {
+        result[currentSection].push(fileMatchPlain[1].trim());
+        continue;
+      }
+      const fileMatchSimple = line.match(/[-*]\s*([A-Za-z][\w.-]*\.\w+)/);
+      if (fileMatchSimple) {
+        result[currentSection].push(fileMatchSimple[1].trim());
       }
     }
   }
@@ -327,10 +442,15 @@ export function extractFileOperations(planText: string): {
   return result;
 }
 
-/**
- * Extrai os passos do plano para gerar tasks.
- */
-export function extractPlanSteps(planText: string): Array<{ title: string; files: string[] }> {
+// ---------------------------------------------------------------------------
+// extractPlanSteps
+// Extrai os passos do plano para gerar tasks.
+// Enriquece cada passo com caminhos de arquivo (com e sem backticks).
+// Se nenhum passo explicito, gera tasks a partir das operacoes de arquivo.
+// ---------------------------------------------------------------------------
+export function extractPlanSteps(
+  planText: string,
+): Array<{ title: string; files: string[] }> {
   const steps: Array<{ title: string; files: string[] }> = [];
   const lines = planText.split("\n");
 
@@ -338,38 +458,74 @@ export function extractPlanSteps(planText: string): Array<{ title: string; files
 
   for (const line of lines) {
     const lower = line.toLowerCase().trim();
-    if (lower.includes("passos:") || lower.includes("steps:") || lower.includes("passo a passo")) {
+    if (
+      lower.includes("passos:") ||
+      lower.includes("steps:") ||
+      lower.includes("passo a passo") ||
+      /^###?\s*passos/.test(lower)
+    ) {
       inSteps = true;
       continue;
     }
 
     if (inSteps) {
-      // Match numbered steps
       const stepMatch = line.match(/^\s*\d+\.\s+(.+)/);
       if (stepMatch) {
         const title = stepMatch[1].trim();
-        // Extract file references from step
         const fileRefs: string[] = [];
-        const fileMatches = title.matchAll(/`([^`]+\.\w+)`/g);
-        for (const m of fileMatches) {
+        const fileMatchesBt = title.matchAll(/`([^`]+\.\w+)`/g);
+        for (const m of fileMatchesBt) {
           fileRefs.push(m[1]);
         }
-        steps.push({ title: title.replace(/`[^`]+`/g, "").trim() || title, files: fileRefs });
+        const fileMatchesPlain = title.matchAll(
+          /((?:src|public|app)\/[\w./-]+\.\w+)/g,
+        );
+        for (const m of fileMatchesPlain) {
+          if (!fileRefs.includes(m[1])) {
+            fileRefs.push(m[1]);
+          }
+        }
+        const cleanTitle = title.replace(/`[^`]+`/g, "").trim() || title;
+        steps.push({ title: cleanTitle, files: fileRefs });
       } else if (line.match(/^###?\s/) && steps.length > 0) {
-        // New section header means end of steps
         break;
       }
     }
   }
 
-  // If no steps found, create generic tasks from file operations
+  // Enriquecer passos sem arquivos usando operacoes de arquivo do plano
+  const ops = extractFileOperations(planText);
+  const allPlanFiles = [...ops.create, ...ops.modify];
+
+  if (steps.length > 0 && allPlanFiles.length > 0) {
+    for (const step of steps) {
+      if (step.files.length === 0) {
+        for (const filePath of allPlanFiles) {
+          const baseName =
+            filePath.split("/").pop()?.replace(/\.\w+$/, "") || "";
+          if (
+            baseName &&
+            step.title.toLowerCase().includes(baseName.toLowerCase())
+          ) {
+            step.files.push(filePath);
+          }
+        }
+        if (step.files.length === 0) {
+          step.files = [...allPlanFiles];
+        }
+      }
+    }
+  }
+
   if (steps.length === 0) {
-    const ops = extractFileOperations(planText);
     if (ops.create.length > 0) {
       steps.push({ title: "Criar novos arquivos", files: ops.create });
     }
     if (ops.modify.length > 0) {
-      steps.push({ title: "Modificar arquivos existentes", files: ops.modify });
+      steps.push({
+        title: "Modificar arquivos existentes",
+        files: ops.modify,
+      });
     }
     if (ops.delete.length > 0) {
       steps.push({ title: "Excluir arquivos", files: ops.delete });
