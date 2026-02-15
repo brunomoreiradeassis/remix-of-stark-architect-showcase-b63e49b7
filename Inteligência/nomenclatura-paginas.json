@@ -1,0 +1,58 @@
+{
+  "regras": {
+    "padraoNomenclatura": "PascalCase",
+    "comprimentoMaximo": 50,
+    "sufixos": {
+      "componente": ".tsx",
+      "pagina": "Page.tsx",
+      "hook": "use",
+      "utilidade": "Utils.ts",
+      "tipo": "Types.ts"
+    },
+    "prefixosProibidos": [
+      "Altere",
+      "Mude", 
+      "Crie",
+      "Adicione",
+      "Implemente",
+      "Faça"
+    ],
+    "palavrasProibidas": [
+      "ONome",
+      "Para",
+      "De",
+      "A",
+      "O",
+      "Na",
+      "PGina",
+      "GestO",
+      "ProduO"
+    ]
+  },
+  "exemplos": {
+    "nomesValidos": [
+      "DashboardPage.tsx",
+      "UserProfile.tsx", 
+      "InventoryManagement.tsx",
+      "SalesReport.tsx",
+      "FinancialDashboard.tsx"
+    ],
+    "nomesInvalidos": [
+      "AltereONomeDeBuildAIParaERP5.tsx",
+      "MudeONomeBuildAIParaSistemaERP6.tsx",
+      "CrieUmBotONaPGinaInicialParaAcessarAPGinaGestOProduO.tsx"
+    ]
+  },
+  "mapeamentoTipoConteudo": {
+    "dashboard": "Dashboard",
+    "financeiro": "Financial",
+    "estoque": "Inventory",
+    "producao": "Production", 
+    "qualidade": "Quality",
+    "logistica": "Logistics",
+    "manutencao": "Maintenance",
+    "rh": "HR",
+    "vendas": "Sales",
+    "compras": "Purchasing"
+  }
+}

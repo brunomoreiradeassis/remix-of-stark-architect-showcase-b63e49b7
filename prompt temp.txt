@@ -1,0 +1,17 @@
+ajuste pois o chat está dando esse erro ao criar os códigos dos arquivos para depois substituir os originais no explorer: ❌ Erro ao executar plano: Falha ao conectar ao chat do Ollama
+
+Os arquivos originais foram mantidos intactos.
+
+O Ollama está conectado e os modelos estão aparecendo normalmente.
+
+Ajuste para que ele faça tudo e otimize para que o chat seja mais devagar e use muito mais tokens para gerar muito mais sem errar e sem perder o contexto dos arquivos do projeto. Ajuste o chat para separar o texto de conversa do código dentro das mensagens onde a conversa seja normal e os códigos sejam dentro de cards e com nomes dos arquivos. Ajuste a forma que ele executa a criação dos códigos e a estrutura das mensagens para ficar igual ao do lovable exibindo tasks das tarefas dos passos com nome da tardefa na parte superior do card das tasks e o ok quando completa cada uma até a última e quando finalizar exibir o que foi feito com tópicos com título o nome da tarefa, subtítulo os arquivos referentes e o contexto da alteração
+
+
+como exemplo as imagens em anexo para que o chat siga esse layout dos cards das tasks e ok nas tarefas, nomes dos arquivos com Editando e badge no nome do arquivo, bolinha carregando com nome das tarefas da lista e ok quando cada uma finalizar e por fim exibir o que foi feito conforme na imagem em anexo seguindo o mesmo layout do card e cores de fundo do chat:
+
+Layout dos cards de tasks redesenhado no estilo Lovable:
+
+Card "Editando" — Mostra "Editando" + badge com nome do arquivo atual + descrição da tarefa + chevron >
+Lista de tasks — Bolinhas com animação de loading (SVG spinning) enquanto executa, checkmark verde quando completa, círculo vazio para pendentes
+Card de resumo — Card com título do prompt, ícone de bookmark, lista de tarefas concluídas com checkmarks, abas "Detalhes"/"Preview", e lista numerada com nome da tarefa em negrito, badges dos arquivos em code, e contexto da alteração
+Detecção de arquivo — O sistema detecta qual arquivo está sendo editado em tempo real durante o streaming
