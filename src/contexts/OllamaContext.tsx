@@ -617,24 +617,41 @@ export function OllamaProvider({ children }: { children: ReactNode }) {
   };
 
   const deleteFileFromDisk = async (path: string) => {
-    if (!dirHandle) return;
-    try {
-      const parts = path.split(/[\\\/]/);
-      let currentDir = dirHandle;
-      
-      for (let i = 0; i < parts.length - 1; i++) {
-        currentDir = await currentDir.getDirectoryHandle(parts[i]);
+    // Sync local (FileSystemHandle)
+    if (dirHandle) {
+      try {
+        const parts = path.split(/[\\\/]/);
+        let currentDir = dirHandle;
+        
+        for (let i = 0; i < parts.length - 1; i++) {
+          currentDir = await currentDir.getDirectoryHandle(parts[i]);
+        }
+        
+        await currentDir.removeEntry(parts[parts.length - 1]);
+      } catch (e: any) {
+        if (e.name !== "NotFoundError") {
+          console.error(`Error deleting ${path} from disk:`, e);
+          toast({ 
+            title: "Erro ao excluir", 
+            description: `Nao foi possivel excluir ${path}: ${e.message}`, 
+            variant: "destructive" 
+          });
+        }
       }
-      
-      await currentDir.removeEntry(parts[parts.length - 1]);
-    } catch (e: any) {
-      if (e.name === "NotFoundError") return;
-      console.error(`Error deleting ${path} from disk:`, e);
-      toast({ 
-        title: "Erro ao excluir", 
-        description: `Não foi possível excluir ${path}: ${e.message}`, 
-        variant: "destructive" 
-      });
+    }
+
+    // Sync remoto (Servidor Projetos) se estivermos em um projeto identificado
+    if (dirHandle?.name) {
+      fetch("http://localhost:3001/delete-file", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectName: dirHandle.name,
+          filePath: path,
+        }),
+      }).catch((err) =>
+        console.error("Erro ao excluir arquivo no servidor remoto:", err)
+      );
     }
   };
   const [config, setConfig] = useState<OllamaConfig>(() => {
