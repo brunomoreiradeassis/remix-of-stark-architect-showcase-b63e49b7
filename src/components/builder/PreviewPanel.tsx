@@ -1,9 +1,9 @@
 import { useOllama } from "@/contexts/OllamaContext";
 import { useEffect, useState } from "react";
-import { RefreshCw, Maximize2, Minimize2, AlertTriangle, X, Wrench } from "lucide-react";
+import { RefreshCw, Maximize2, Minimize2, AlertTriangle, Bug } from "lucide-react";
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { ErrorDiagnosticModal } from "./ErrorDiagnosticModal";
 
 export function PreviewPanel() {
   const { devServerPort, devServerUrl, commandProgress, consoleErrors, clearConsoleErrors, setPendingErrorFix } = useOllama();

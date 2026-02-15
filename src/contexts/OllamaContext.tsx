@@ -60,8 +60,16 @@ interface OllamaContextType {
   consoleErrors: string[];
   addConsoleError: (error: string) => void;
   clearConsoleErrors: () => void;
+  buildErrors: string[];
+  addBuildError: (error: string) => void;
+  clearBuildErrors: () => void;
+  allErrors: Array<{ type: "build" | "console"; message: string }>;
   pendingErrorFix: string | null;
   setPendingErrorFix: (msg: string | null) => void;
+  runBuildCheck: () => Promise<void>;
+  nukeNodeModules: () => Promise<void>;
+  installDependency: (pkg: string) => Promise<void>;
+  isFixingErrors: boolean;
   projectComponents: string[];
   projectTemplate: string;
   lastPrompt: string | null;
@@ -148,6 +156,144 @@ export function OllamaProvider({ children }: { children: ReactNode }) {
   const clearConsoleErrors = useCallback(() => {
     setConsoleErrors([]);
   }, []);
+
+  const [buildErrors, setBuildErrors] = useState<string[]>([]);
+  const [isFixingErrors, setIsFixingErrors] = useState(false);
+
+  const addBuildError = useCallback((error: string) => {
+    setBuildErrors(prev => {
+      if (prev.includes(error)) return prev;
+      return [...prev, error];
+    });
+  }, []);
+
+  const clearBuildErrors = useCallback(() => {
+    setBuildErrors([]);
+  }, []);
+
+  // Combina todos os erros em uma lista unificada
+  const allErrors = useMemo(() => {
+    const items: Array<{ type: "build" | "console"; message: string }> = [];
+    buildErrors.forEach(e => items.push({ type: "build", message: e }));
+    consoleErrors.forEach(e => items.push({ type: "console", message: e }));
+    return items;
+  }, [buildErrors, consoleErrors]);
+
+  // Verifica erros de build rodando `pnpm run build` ou `npx tsc --noEmit`
+  const runBuildCheck = useCallback(async () => {
+    const pName = dirHandle?.name || derivedProjectName;
+    const cwd = projectPath || (pName ? `d:\\AI-Projetos\\BuilderAI\\Projetos\\${pName}` : null);
+    if (!cwd) return;
+
+    try {
+      const statusRes = await fetch("http://localhost:3001/status").catch(() => null);
+      if (!statusRes?.ok) return;
+
+      clearBuildErrors();
+      const res = await fetch("http://localhost:3001/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command: "npx tsc --noEmit 2>&1; exit 0", cwd })
+      });
+      if (!res.ok || !res.body) return;
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value);
+      }
+
+      const ansi = /\x1B\[[0-?]*[ -/]*[@-~]/g;
+      const lines = buffer.replace(ansi, "").split(/\r?\n/);
+      const errorLines = lines.filter(l => {
+        const cleaned = l.replace(/^(STDOUT|STDERR):\s?/, "").trim();
+        return /error TS\d+|Cannot find|is not assignable|has no exported member|Module.*not found|Unexpected token/i.test(cleaned) && cleaned.length > 10;
+      });
+      errorLines.forEach(l => {
+        const cleaned = l.replace(/^(STDOUT|STDERR):\s?/, "").trim();
+        addBuildError(cleaned);
+      });
+    } catch (e) {
+      console.error("Build check failed:", e);
+    }
+  }, [dirHandle, derivedProjectName, projectPath, clearBuildErrors, addBuildError]);
+
+  // Apaga node_modules e reinstala
+  const nukeNodeModules = useCallback(async () => {
+    const pName = dirHandle?.name || derivedProjectName;
+    const cwd = projectPath || (pName ? `d:\\AI-Projetos\\BuilderAI\\Projetos\\${pName}` : null);
+    if (!cwd) {
+      toast({ title: "Erro", description: "Nenhum projeto aberto.", variant: "destructive" });
+      return;
+    }
+    try {
+      const statusRes = await fetch("http://localhost:3001/status").catch(() => null);
+      if (!statusRes?.ok) {
+        toast({ title: "Servidor offline", description: "Inicie o command-server.", variant: "destructive" });
+        return;
+      }
+      toast({ title: "Limpando node_modules", description: "Removendo e reinstalando..." });
+      setCommandProgress({ status: "installing", progress: 10, message: "Removendo node_modules..." });
+      const res = await fetch("http://localhost:3001/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command: "Remove-Item -Recurse -Force node_modules -ErrorAction SilentlyContinue; pnpm install", cwd })
+      });
+      if (!res.ok || !res.body) throw new Error("Falha na execucao");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const text = decoder.decode(value);
+        if (text.includes("added") || text.includes("up to date")) {
+          setCommandProgress({ status: "running", progress: 100, message: "Dependencias reinstaladas!" });
+        }
+      }
+      toast({ title: "Concluido", description: "node_modules reinstalado com sucesso." });
+      setCommandProgress({ status: "idle", progress: 0, message: "" });
+    } catch (e: any) {
+      toast({ title: "Erro", description: e.message, variant: "destructive" });
+      setCommandProgress({ status: "error", progress: 0, message: e.message });
+    }
+  }, [dirHandle, derivedProjectName, projectPath, setCommandProgress]);
+
+  // Instala um pacote especifico
+  const installDependency = useCallback(async (pkg: string) => {
+    const pName = dirHandle?.name || derivedProjectName;
+    const cwd = projectPath || (pName ? `d:\\AI-Projetos\\BuilderAI\\Projetos\\${pName}` : null);
+    if (!cwd) {
+      toast({ title: "Erro", description: "Nenhum projeto aberto.", variant: "destructive" });
+      return;
+    }
+    try {
+      const statusRes = await fetch("http://localhost:3001/status").catch(() => null);
+      if (!statusRes?.ok) {
+        toast({ title: "Servidor offline", description: "Inicie o command-server.", variant: "destructive" });
+        return;
+      }
+      toast({ title: "Instalando", description: `Instalando ${pkg}...` });
+      const res = await fetch("http://localhost:3001/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ command: `pnpm add ${pkg}`, cwd })
+      });
+      if (!res.ok || !res.body) throw new Error("Falha na instalacao");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        decoder.decode(value); // consume stream
+      }
+      toast({ title: "Instalado", description: `${pkg} instalado com sucesso.` });
+    } catch (e: any) {
+      toast({ title: "Erro", description: e.message, variant: "destructive" });
+    }
+  }, [dirHandle, derivedProjectName, projectPath]);
 
   // Limpar qualquer referencia salva a porta 8080 (porta do sistema)
   useEffect(() => {
@@ -367,6 +513,11 @@ export function OllamaProvider({ children }: { children: ReactNode }) {
       try {
         await runProjectCommands();
       } catch (e: unknown) { void e; }
+
+      // Auto build-check apos abrir projeto
+      setTimeout(() => {
+        runBuildCheck().catch(() => {});
+      }, 3000);
     } catch (e: any) {
       if (e.name === "AbortError") return;
       console.error(e);
@@ -930,6 +1081,8 @@ export function OllamaProvider({ children }: { children: ReactNode }) {
       runProjectCommands,
       commandProgress,
       consoleErrors, addConsoleError, clearConsoleErrors,
+      buildErrors, addBuildError, clearBuildErrors, allErrors,
+      runBuildCheck, nukeNodeModules, installDependency, isFixingErrors,
       pendingErrorFix, setPendingErrorFix,
       projectComponents, projectTemplate, lastPrompt, setLastPrompt, lastError, setLastError, currentFile, setCurrentFile: (p) => { setCurrentFileState(p); localStorage.setItem("current-file", p ?? ""); },
       chatSessions, currentChatId, setCurrentChatId, saveChatSession, loadChatSession, loadChatSessions, projectName: derivedProjectName }}>
