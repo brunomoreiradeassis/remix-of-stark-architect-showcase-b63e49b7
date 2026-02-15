@@ -5,6 +5,7 @@ import { PreviewPanel } from "@/components/builder/PreviewPanel";
 import { CodeEditor } from "@/components/builder/CodeEditor";
 import { LoadingCard } from "@/components/builder/LoadingCard";
 import { OllamaProvider } from "@/contexts/OllamaContext";
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 
 function AppShell() {
   const [view, setView] = useState<"preview" | "code">("preview");
@@ -20,17 +21,19 @@ function AppShell() {
     <div className="h-screen flex flex-col overflow-hidden">
       <TopToolbar view={view} onViewChange={setView} />
 
-      <div className="flex flex-1 overflow-hidden">
+      <ResizablePanelGroup direction="horizontal" className="flex-1">
         {/* Chat panel */}
-        <div className="w-80 shrink-0 border-r border-border">
+        <ResizablePanel defaultSize={25} minSize={15} maxSize={50}>
           <ChatPanel />
-        </div>
+        </ResizablePanel>
+
+        <ResizableHandle withHandle />
 
         {/* Preview / Code */}
-        <div className="flex-1 min-w-0">
+        <ResizablePanel defaultSize={75} minSize={30}>
           {view === "preview" ? <PreviewPanel /> : <CodeEditor />}
-        </div>
-      </div>
+        </ResizablePanel>
+      </ResizablePanelGroup>
 
       <LoadingCard />
     </div>
