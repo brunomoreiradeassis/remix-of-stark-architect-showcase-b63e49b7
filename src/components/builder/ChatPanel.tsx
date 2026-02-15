@@ -337,7 +337,7 @@ export function ChatPanel() {
       role: "assistant",
       content: "",
       timestamp: new Date(),
-      isPlan: chatMode === "agente",
+      isPlan: false,
       planExecuted: false,
       planPrompt: userMessage.content,
     };
@@ -348,17 +348,17 @@ export function ChatPanel() {
 
     const systemPrompt = chatMode === "agente" ? PLAN_SYSTEM_PROMPT : PLAN_ONLY_SYSTEM_PROMPT;
 
-    const MAX_CONTEXT_CHARS = 6000;
-    const fileList = virtualFiles.map((f) => f.path).join(", ");
-    const activeFile = virtualFiles.length > 0 ? virtualFiles[0] : undefined;
-    const currentVf = activeFile;
-    const projectContext = currentVf ? `--- ${currentVf.path} ---\n${currentVf.code.slice(0, MAX_CONTEXT_CHARS)}` : "";
+    const MAX_CONTEXT_CHARS = 12000;
+    const projectContext = virtualFiles.length > 0
+      ? virtualFiles
+          .map((f) => `--- ${f.path} ---\n${f.code.slice(0, Math.floor(MAX_CONTEXT_CHARS / Math.max(1, virtualFiles.length)))}`)
+          .join("\n\n")
+      : "";
 
     const msgs: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
       { role: "system", content: systemPrompt },
       { role: "system", content: projectTemplate },
-      { role: "system", content: `Arquivos do projeto: ${fileList}` },
-      ...(projectContext ? [{ role: "system" as const, content: `Contexto do arquivo ativo:\n\n${projectContext}` }] : []),
+      ...(projectContext ? [{ role: "system" as const, content: `Contexto completo do projeto:\n\n${projectContext}` }] : []),
       ...messages.filter((m) => m.role === "user" || (m.role === "assistant" && !m.isPlan)).map((m) => ({ role: m.role, content: m.content })),
       { role: "user", content: userMessage.content },
     ];
@@ -532,8 +532,7 @@ Não abrevie. Não gere arquivos fora do escopo do passo.`;
         const blocks = extractAllCodeBlocks(fullResponse);
         blocks.forEach((b, idx) => {
           if (!b.code.trim()) return;
-          const baseName = normalizeName((current.title || "Arquivo") + (idx > 0 ? ` ${idx + 1}` : ""));
-          const fname = b.filename ?? baseName;
+        const fname = b.filename ?? `GeneratedComponent${idx > 0 ? idx + 1 : ""}.tsx`;
           const path = routeFile(fname);
           const needsHeader =
             !b.code.startsWith("//") &&
@@ -567,7 +566,7 @@ Não abrevie. Não gere arquivos fora do escopo do passo.`;
 
         taskSummaries.push({
           title: current.title,
-          files: current.files.length > 0 ? current.files : blocks.map((b) => routeFile(b.filename || normalizeName(current.title))),
+          files: current.files.length > 0 ? current.files : blocks.map((b, idx) => routeFile(b.filename || `GeneratedComponent${idx > 0 ? idx + 1 : ""}.tsx`)),
           context: current.files.some((f) => allCreated.includes(f)) ? "Criado" : "Modificado",
         });
 
@@ -636,6 +635,83 @@ Não abrevie. Não gere arquivos fora do escopo do passo.`;
     }
   };
 
+  // ── GENERATE PLAN from conversation ──
+  const handleGeneratePlan = () => {
+    if (isLoading || !config.baseUrl || !config.selectedModel) return;
+
+    const conversationHistory = messages
+      .filter((m) => m.role === "user")
+      .map((m) => m.content)
+      .join("\n");
+
+    if (!conversationHistory.trim()) {
+      toast({ title: "Sem histórico", description: "Converse um pouco antes de gerar um plano.", duration: 2000 });
+      return;
+    }
+
+    const planPrompt = `Com base na conversa a seguir, gere um plano de implementação completo:\n\n${conversationHistory}`;
+
+    setIsLoading(true);
+
+    const assistantMessage: Message = {
+      id: (Date.now() + 1).toString(),
+      role: "assistant",
+      content: "",
+      timestamp: new Date(),
+      isPlan: true,
+      planExecuted: false,
+      planPrompt: conversationHistory,
+    };
+    setMessages((prev) => [...prev, assistantMessage]);
+
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
+
+    const MAX_CONTEXT_CHARS = 12000;
+    const projectContext = virtualFiles.length > 0
+      ? virtualFiles
+          .map((f) => `--- ${f.path} ---\n${f.code.slice(0, Math.floor(MAX_CONTEXT_CHARS / Math.max(1, virtualFiles.length)))}`)
+          .join("\n\n")
+      : "";
+
+    const cfgChat = { ...config, selectedModel: pickModel("chat", models.map((m) => m.name), config.selectedModel) };
+
+    const msgs: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
+      { role: "system", content: PLAN_SYSTEM_PROMPT },
+      { role: "system", content: projectTemplate },
+      ...(projectContext ? [{ role: "system" as const, content: `Contexto completo do projeto:\n\n${projectContext}` }] : []),
+      ...messages.filter((m) => m.role === "user" || (m.role === "assistant" && !m.isPlan)).map((m) => ({ role: m.role, content: m.content })),
+      { role: "user", content: planPrompt },
+    ];
+
+    chatStream({
+      config: cfgChat,
+      messages: msgs,
+      onToken: (t) => {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === assistantMessage.id ? { ...m, content: m.content + t } : m)),
+        );
+      },
+      signal: abortRef.current.signal,
+    }).finally(() => {
+      setIsLoading(false);
+      abortRef.current = null;
+    });
+  };
+
+  // ── CANCEL last plan ──
+  const handleCancelPlan = () => {
+    setMessages((prev) => {
+      const lastPlanIdx = [...prev].reverse().findIndex((m) => m.isPlan);
+      if (lastPlanIdx === -1) return prev;
+      const actualIdx = prev.length - 1 - lastPlanIdx;
+      return prev.filter((_, i) => i !== actualIdx);
+    });
+    toast({ title: "Plano cancelado", duration: 2000 });
+  };
+
+  const hasActivePlan = messages.some((m) => m.isPlan && !m.planExecuted);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -652,7 +728,7 @@ Não abrevie. Não gere arquivos fora do escopo do passo.`;
     return (
       <div className="mt-2 space-y-1.5">
         {blocks.map((b, i) => {
-          const inferred = b.filename || routeFile(normalizeName((lastPrompt || "Bloco") + (i > 0 ? ` ${i + 1}` : "")));
+          const inferred = b.filename || `GeneratedComponent${i > 0 ? i + 1 : ""}.tsx`;
           const displayName = inferred.replace(/^[\\/]+/, "");
           return (
             <div
@@ -1050,13 +1126,13 @@ Não abrevie. Não gere arquivos fora do escopo do passo.`;
             ) : (
               /* Regular message bubble */
               <div
-                className={`max-w-[85%] rounded-lg px-3.5 py-2.5 text-sm leading-relaxed ${
+                className={`max-w-[85%] min-w-0 rounded-lg px-3.5 py-2.5 text-sm leading-relaxed overflow-hidden ${
                   msg.role === "user"
                     ? "bg-primary text-primary-foreground"
                     : "bg-card text-card-foreground"
                 }`}
               >
-                <div className="whitespace-pre-wrap break-words">
+                <div className="whitespace-pre-wrap break-words overflow-hidden" style={{ wordBreak: "break-word" }}>
                   {msg.isPlan
                     ? renderContent(msg.content)
                     : msg.content.includes("```")
@@ -1147,7 +1223,7 @@ Não abrevie. Não gere arquivos fora do escopo do passo.`;
             <div className="animate-slide-up">
               <div className="bg-secondary rounded-lg px-3.5 py-2.5 text-sm inline-flex items-center gap-2 text-muted-foreground">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                <span>Gerando plano...</span>
+                <span>{isLoading && messages.some(m => m.isPlan && m.content === "") ? "Gerando plano..." : "Pensando..."}</span>
               </div>
             </div>
             <Skeleton className="h-3 w-40" />
@@ -1194,6 +1270,35 @@ Não abrevie. Não gere arquivos fora do escopo do passo.`;
           </div>
         </div>
       )}
+
+      {/* Floating Plan Buttons */}
+      <div className="px-3 py-1.5 flex items-center gap-2">
+        {chatMode === "agente" && (
+          <>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1.5 text-xs flex-1"
+              onClick={handleGeneratePlan}
+              disabled={isLoading || messages.filter(m => m.role === "user").length === 0}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              Gerar Plano
+            </Button>
+            {hasActivePlan && (
+              <Button
+                size="sm"
+                variant="destructive"
+                className="gap-1.5 text-xs"
+                onClick={handleCancelPlan}
+              >
+                <X className="h-3.5 w-3.5" />
+                Cancelar Plano
+              </Button>
+            )}
+          </>
+        )}
+      </div>
 
       {/* Input */}
       <div className="px-3 pb-3 pt-1">
