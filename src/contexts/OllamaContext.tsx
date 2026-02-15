@@ -108,9 +108,15 @@ export function OllamaProvider({ children }: { children: ReactNode }) {
 
   const [dirHandle, setDirHandle] = useState<FileSystemDirectoryHandle | null>(null);
   const [projectPath, setProjectPath] = useState<string | null>(() => localStorage.getItem("current-project-path"));
-  const [devServerUrl, setDevServerUrl] = useState<string | null>(() => localStorage.getItem("last-preview-url"));
+  const [devServerUrl, setDevServerUrl] = useState<string | null>(() => {
+    const saved = localStorage.getItem("last-preview-url");
+    // Nunca restaurar a porta 8080 (porta do proprio sistema)
+    if (saved && /localhost:8080/i.test(saved)) return null;
+    return saved;
+  });
   const [devServerPort, setDevServerPort] = useState<number | null>(() => {
     const p = localStorage.getItem("last-preview-port");
+    if (p && Number(p) === 8080) return null;
     return p ? Number(p) : null;
   });
   const [recentProjects, setRecentProjects] = useState<Array<{ name: string; handle: FileSystemDirectoryHandle; path?: string }>>([]);
@@ -141,6 +147,18 @@ export function OllamaProvider({ children }: { children: ReactNode }) {
 
   const clearConsoleErrors = useCallback(() => {
     setConsoleErrors([]);
+  }, []);
+
+  // Limpar qualquer referencia salva a porta 8080 (porta do sistema)
+  useEffect(() => {
+    const savedUrl = localStorage.getItem("last-preview-url");
+    const savedPort = localStorage.getItem("last-preview-port");
+    if (savedUrl && /localhost:8080/i.test(savedUrl)) {
+      localStorage.removeItem("last-preview-url");
+    }
+    if (savedPort && savedPort === "8080") {
+      localStorage.removeItem("last-preview-port");
+    }
   }, []);
 
   // Restore directory handle on load
@@ -244,8 +262,10 @@ export function OllamaProvider({ children }: { children: ReactNode }) {
           setCommandProgress({ status: "installing", progress: 20, message: "Instalando dependências..." });
         }
 
+        // Porta 8080 e a porta do proprio sistema - NUNCA usar no preview
+        const SYSTEM_PORT = 8080;
         const urlMatch = text.match(/http:\/\/localhost:(\d{2,5})/i) || text.match(/http:\/\/127\.0\.0\.1:(\d{2,5})/i);
-        if (urlMatch) {
+        if (urlMatch && Number(urlMatch[1]) !== SYSTEM_PORT) {
           const url = `http://localhost:${urlMatch[1]}/`;
           try {
             localStorage.setItem("last-preview-url", url);

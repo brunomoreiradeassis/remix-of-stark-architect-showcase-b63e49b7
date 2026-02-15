@@ -9,6 +9,8 @@ export function PreviewPanel() {
   const { devServerPort, devServerUrl, commandProgress, consoleErrors, clearConsoleErrors, setPendingErrorFix } = useOllama();
   const [previewUrl, setPreviewUrl] = useState<string | null>(() => {
     const saved = localStorage.getItem("last-preview-url");
+    // Nunca usar porta 8080 no preview (porta do proprio sistema)
+    if (saved && /localhost:8080/i.test(saved)) return null;
     return saved || null;
   });
   const [expanded, setExpanded] = useState(false);
@@ -18,7 +20,7 @@ export function PreviewPanel() {
 
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
-      if (e.key === "last-preview-url" && e.newValue) {
+      if (e.key === "last-preview-url" && e.newValue && !/localhost:8080/i.test(e.newValue)) {
         setPreviewUrl(e.newValue);
       }
     };
