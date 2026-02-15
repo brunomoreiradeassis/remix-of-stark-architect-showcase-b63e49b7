@@ -7,7 +7,6 @@ import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "@
 import { toast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
-import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { Progress } from "@/components/ui/progress";
 
 interface TaskItem {
@@ -757,20 +756,16 @@ Não abrevie. Não gere arquivos fora do escopo do passo.`;
   const maxAvail = Math.max(1, config.maxTokens || 8192);
   const usedTokens = Math.max(0, totalTokens + inputTokens);
   const pctUsed = Math.min(100, Math.round((usedTokens / maxAvail) * 100));
-  const [tokensOpen, setTokensOpen] = useState(false);
-  const [warnedHighTokens, setWarnedHighTokens] = useState(false);
 
   useEffect(() => {
-    if (pctUsed >= 80 && !warnedHighTokens) {
-      setTokensOpen(true);
-      setWarnedHighTokens(true);
+    if (pctUsed >= 80) {
       toast({
         title: "Uso de tokens alto",
         description: `Você já usou ${pctUsed}% do limite de tokens.`,
         duration: 3500,
       });
     }
-  }, [pctUsed, warnedHighTokens]);
+  }, [pctUsed >= 80]);
 
   // ── Spinning SVG icon for running tasks ──
   const SpinnerIcon = () => (
@@ -990,116 +985,101 @@ Não abrevie. Não gere arquivos fora do escopo do passo.`;
 
   return (
     <div className="h-full flex flex-col bg-chat-bg">
-      {/* Header */}
-      <div className="px-4 py-2 border-b border-border flex flex-col gap-2 bg-card/30">
-        <div className="flex items-center justify-between">
-          <div />
-          <div className="flex items-center gap-1">
-            <button
-              onClick={startNewChat}
-              className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-primary transition-colors"
-              title="Novo Chat"
-            >
-              <Plus className="h-4 w-4" />
-            </button>
-            <button
-              onClick={clearChat}
-              className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-              title="Excluir Histórico"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
+      {/* Header - compact Lovable-style */}
+      <div className="px-3 py-2 border-b border-border flex items-center gap-2 bg-card/30">
+        {/* Model selector */}
+        <div className="flex-1 min-w-0">
+          <Select
+            value={config.selectedModel || undefined}
+            onValueChange={(v) => {
+              updateConfig({ selectedModel: v });
+              try {
+                const raw = localStorage.getItem("ollama-task-models");
+                const map = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+                map["chat"] = v;
+                localStorage.setItem("ollama-task-models", JSON.stringify(map));
+              } catch (e) { void e; }
+            }}
+          >
+            <SelectTrigger className="h-7 text-[11px] bg-secondary/30 border-none w-full">
+              <SelectValue placeholder="Modelo" />
+            </SelectTrigger>
+            <SelectContent>
+              {models.map((m) => (
+                <SelectItem key={m.name} value={m.name} className="text-xs">
+                  {m.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
-        <div className="flex items-start gap-2">
-          <div className="flex-1">
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-1.5">
-                <Sparkles className="h-3.5 w-3.5 text-primary" />
-                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-                  {chatMode === "agente" ? "Modo Execução" : "Modo Consulta"}
-                </span>
-              </div>
-              <div className="w-full max-w-[280px]">
-                <Select
-                  value={config.selectedModel || undefined}
-                  onValueChange={(v) => {
-                    updateConfig({ selectedModel: v });
-                    try {
-                      const raw = localStorage.getItem("ollama-task-models");
-                      const map = raw ? (JSON.parse(raw) as Record<string, string>) : {};
-                      map["chat"] = v;
-                      localStorage.setItem("ollama-task-models", JSON.stringify(map));
-                    } catch (e) { void e; }
-                  }}
-                >
-                  <SelectTrigger className="h-7 text-[11px] bg-secondary/30 border-none w-full">
-                    <SelectValue placeholder="Modelo" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {models.map((m) => (
-                      <SelectItem key={m.name} value={m.name} className="text-xs">
-                        {m.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="h-px bg-border/60 my-2 w-full max-w-[320px]" />
-              <div className="w-full max-w-[320px] flex items-start gap-2">
-                <Collapsible open={tokensOpen} onOpenChange={setTokensOpen}>
-                  <CollapsibleTrigger className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2">
-                    Detalhes de tokens
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="mt-2">
-                    <div className="rounded-md border border-border/60 bg-secondary/40 p-2 space-y-1.5">
-                      <div className="flex items-center justify-between text-[12px] text-foreground">
-                        <span className="font-medium">Uso: <span className="font-mono">{usedTokens}/{maxAvail}</span></span>
-                        <span className="font-semibold">{pctUsed}%</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Progress value={pctUsed} className="h-1.5 bg-primary/10" />
-                      </div>
-                      <div className="grid grid-cols-2 gap-x-2 text-[11px] text-muted-foreground pt-0.5">
-                        <div>Assist: <span className="font-mono">{assistantTokens}</span></div>
-                        <div>Entrada: <span className="font-mono">{inputTokens}</span></div>
-                      </div>
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
-                <div className="ml-auto">
-                  <Select
-                    value={currentChatId || ""}
-                    onValueChange={(v) => {
-                      if (v === "__new__") {
-                        startNewChat();
-                      } else {
-                        handleLoadChat(v);
-                      }
-                    }}
-                  >
-                    <SelectTrigger className="h-6 text-[10px] bg-secondary/30 border-border/50 w-[120px] px-2">
-                      <MessageSquare className="h-3 w-3 mr-1 shrink-0" />
-                      <SelectValue placeholder="Histórico" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__new__" className="text-xs">
-                        + Novo Chat
-                      </SelectItem>
-                      {chatSessionsList.map((session) => (
-                        <SelectItem key={session.id} value={session.id} className="text-xs">
-                          <span className="truncate max-w-[140px] block">{session.title}</span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+        {/* Tokens tooltip */}
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors" title="Tokens">
+                <Sparkles className="h-3.5 w-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="w-52 p-3">
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-[12px] text-foreground">
+                  <span className="font-medium">Uso: <span className="font-mono">{usedTokens}/{maxAvail}</span></span>
+                  <span className="font-semibold">{pctUsed}%</span>
+                </div>
+                <Progress value={pctUsed} className="h-1.5 bg-primary/10" />
+                <div className="grid grid-cols-2 gap-x-2 text-[11px] text-muted-foreground pt-0.5">
+                  <div>Assist: <span className="font-mono">{assistantTokens}</span></div>
+                  <div>Entrada: <span className="font-mono">{inputTokens}</span></div>
                 </div>
               </div>
-            </div>
-          </div>
-          <div />
-        </div>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+
+        {/* History selector */}
+        <Select
+          value={currentChatId || ""}
+          onValueChange={(v) => {
+            if (v === "__new__") {
+              startNewChat();
+            } else {
+              handleLoadChat(v);
+            }
+          }}
+        >
+          <SelectTrigger className="h-7 text-[10px] bg-secondary/30 border-border/50 w-[100px] px-2">
+            <MessageSquare className="h-3 w-3 mr-1 shrink-0" />
+            <SelectValue placeholder="Histórico" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__new__" className="text-xs">
+              + Novo Chat
+            </SelectItem>
+            {chatSessionsList.map((session) => (
+              <SelectItem key={session.id} value={session.id} className="text-xs">
+                <span className="truncate max-w-[140px] block">{session.title}</span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {/* New chat + delete */}
+        <button
+          onClick={startNewChat}
+          className="p-1.5 rounded-md hover:bg-secondary text-muted-foreground hover:text-primary transition-colors"
+          title="Novo Chat"
+        >
+          <Plus className="h-4 w-4" />
+        </button>
+        <button
+          onClick={clearChat}
+          className="p-1.5 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+          title="Excluir Histórico"
+        >
+          <X className="h-4 w-4" />
+        </button>
       </div>
 
       {/* Messages */}
