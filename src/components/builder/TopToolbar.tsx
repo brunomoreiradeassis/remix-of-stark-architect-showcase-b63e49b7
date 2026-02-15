@@ -296,11 +296,17 @@ export function TopToolbar({ view, onViewChange }: TopToolbarProps) {
                 <TooltipContent>Abrir Terminal (direita)</TooltipContent>
               </Tooltip>
             </TooltipProvider>
-            <SheetContent side="right" className="w-[90vw] sm:max-w-lg p-0">
-              <div className="flex items-center justify-between px-4 py-3 bg-secondary border-b border-border">
-                <h2 className="text-sm font-semibold">Terminal PowerShell</h2>
+            <SheetContent side="right" className="w-[90vw] sm:max-w-lg p-0" style={{ backgroundColor: "#181825" }}>
+              <div className="flex items-center justify-between px-4 py-3 border-b border-[#2a2b3d]" style={{ backgroundColor: "#1e1e2e" }}>
+                <div className="flex items-center gap-2">
+                  <TerminalIcon className="h-4 w-4 text-[#89b4fa]" />
+                  <h2 className="text-sm font-semibold text-[#cdd6f4]">Terminal</h2>
+                </div>
+                {running && (
+                  <span className="text-[10px] font-mono text-[#a6e3a1] animate-pulse">executando...</span>
+                )}
               </div>
-              <div className="p-4 space-y-3 h-full">
+              <div className="p-4 space-y-3 h-full" style={{ backgroundColor: "#181825" }}>
                 <div className="flex gap-2">
                   <input
                     value={command}
@@ -311,36 +317,75 @@ export function TopToolbar({ view, onViewChange }: TopToolbarProps) {
                         exec();
                       }
                     }}
-                    placeholder="Digite um comando PowerShell"
-                    className="flex-1 h-9 rounded-md bg-secondary/50 border border-border px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+                    placeholder="Digite um comando..."
+                    className="flex-1 h-9 rounded-md border border-[#2a2b3d] px-3 text-[13px] font-mono outline-none focus:ring-1 focus:ring-[#89b4fa] text-[#cdd6f4] placeholder:text-[#6c7086]"
+                    style={{ backgroundColor: "#1e1e2e" }}
                   />
                   <button
                     onClick={exec}
                     disabled={running}
-                    className={`h-9 px-4 rounded-md text-sm font-medium transition-colors ${
-                      running ? "bg-muted text-muted-foreground" : "bg-primary text-primary-foreground hover:bg-primary/90"
+                    className={`h-9 px-4 rounded-md text-[13px] font-medium font-mono transition-colors ${
+                      running
+                        ? "bg-[#2a2b3d] text-[#6c7086] cursor-not-allowed"
+                        : "bg-[#89b4fa] text-[#1e1e2e] hover:bg-[#74c7ec]"
                     }`}
                     title="Executar"
                   >
-                    {running ? "Executando..." : "Executar"}
+                    <Play className="h-3.5 w-3.5" />
                   </button>
                 </div>
-                <div className="text-[11px] text-muted-foreground">
+                <div className="text-[11px] font-mono text-[#6c7086]">
                   CWD: {derivedCwd ?? "Abra uma pasta para sincronizar em Projetos/"}
                 </div>
                 <div
-                  className="rounded-lg border border-border shadow-inner"
-                  style={{ backgroundColor: "#012456" }}
+                  className="rounded-lg border border-[#2a2b3d] shadow-inner"
+                  style={{ backgroundColor: "#1e1e2e" }}
                 >
-                  <div className="p-3 font-mono text-sm leading-6">
-                    <div className="text-white">
-                      <span className="text-green-400 select-none">PS {(derivedCwd || "D:\\AI-Projetos\\BuilderAI\\Projetos").replace(/\\/g, "\\")}&gt;</span>{" "}
-                      <span className="text-white">{command}</span>
-                    </div>
+                  <div className="px-4 py-2.5 font-mono text-[13px] leading-6">
+                    <span className="text-[#6c7086] select-none">{new Date().toISOString().slice(11, 23)}{"  "}</span>
+                    <span className="text-[#89b4fa] font-semibold select-none">[PS]</span>
+                    {"  "}
+                    <span className="text-[#cdd6f4]">{(derivedCwd || "D:\\AI-Projetos\\BuilderAI\\Projetos").replace(/\\/g, "\\")}&gt; {command}</span>
                   </div>
                 </div>
-                <div ref={outRef} className="h-[55vh] overflow-auto rounded-lg border border-border bg-black text-green-200 p-3 text-xs font-mono whitespace-pre-wrap">
-                  {serverOnline === false ? "Executor offline em http://localhost:3001. Rode: node scripts/command-server.cjs" : output || "Pronto."}
+                <div
+                  ref={outRef}
+                  className="h-[55vh] overflow-auto rounded-lg border border-[#2a2b3d] p-4 font-mono text-[13px] leading-6 whitespace-pre-wrap"
+                  style={{ backgroundColor: "#1e1e2e" }}
+                >
+                  {serverOnline === false ? (
+                    <span className="text-[#f38ba8]">Executor offline em http://localhost:3001. Rode: node scripts/command-server.cjs</span>
+                  ) : output ? (
+                    output.split("\n").map((line, i) => {
+                      const ts = new Date().toISOString().slice(11, 23);
+                      const isError = /error|falha|fail/i.test(line);
+                      const hasUrl = line.match(/(https?:\/\/[^\s]+)/);
+                      return (
+                        <div key={i} className="flex gap-0">
+                          <span className="text-[#6c7086] select-none shrink-0" style={{minWidth:'110px'}}>{ts}</span>
+                          <span className="text-[#89dceb] font-semibold select-none shrink-0 mx-1">[SERVER]</span>
+                          {"  "}
+                          {isError ? (
+                            <span className="text-[#f38ba8]">{line}</span>
+                          ) : hasUrl ? (
+                            <span className="text-[#cdd6f4]">
+                              {line.split(/(https?:\/\/[^\s]+)/).map((part, j) =>
+                                /^https?:\/\//.test(part) ? (
+                                  <span key={j} className="text-[#89b4fa] underline">{part}</span>
+                                ) : (
+                                  <span key={j}>{part}</span>
+                                )
+                              )}
+                            </span>
+                          ) : (
+                            <span className="text-[#cdd6f4]">{line}</span>
+                          )}
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <span className="text-[#6c7086]">Pronto.</span>
+                  )}
                 </div>
               </div>
             </SheetContent>
